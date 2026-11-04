@@ -21,7 +21,7 @@ var statusPage = template.Must(template.New("status").Funcs(template.FuncMap{
 		return time.Since(*t).Round(time.Second).String()
 	},
 }).Parse(`<!doctype html>
-<html><head><meta charset="utf-8"><meta http-equiv="refresh" content="15">
+<html><head><meta charset="utf-8"><meta http-equiv="refresh" content="10">
 <title>orb-ec2 · {{.Provider}}</title>
 <style>
 body { font: 14px/1.4 system-ui, sans-serif; margin: 2em; color: #222; }
@@ -35,7 +35,7 @@ code { font-size: 13px; }
 .error { color: #b91c1c; }
 </style></head><body>
 <h1>orb-ec2 provider <code>{{.Provider}}</code></h1>
-<p>{{.Now.Format "2006-01-02 15:04:05 MST"}} · refreshes every 15 seconds</p>
+<p>{{.Now.Format "2006-01-02 15:04:05 MST"}} · refreshes every 10 seconds</p>
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 <h2>Instances</h2>
 {{if .Instances}}<table>
