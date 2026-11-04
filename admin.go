@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -141,25 +142,66 @@ func (o *Orbs) Logs(ctx context.Context, orbID string) error {
 	return nil
 }
 
-// Prune deregisters snapshot AMIs that no spawn used for olderThan, and base
-// AMIs older than the newest one for the same image and architecture, and
-// deletes their EBS snapshots.
+// Prune deletes what this provider no longer uses. It terminates orbs that
+// have been stopped, with their disks, since before olderThan, and builders
+// that bake left behind. It deletes snapshot and base AMIs that no spawn has
+// used for olderThan, and base AMIs that a newer bake superseded. It only
+// touches resources tagged with this provider. Running orbs stay: Amp pauses
+// them when their threads go idle.
 func (o *Orbs) Prune(ctx context.Context, olderThan time.Duration, dryRun bool) error {
+	cutoff := time.Now().Add(-olderThan)
+	pruned := 0
+	report := func(doing, id, name, reason string) {
+		pruned++
+		if dryRun {
+			doing = "would prune"
+		}
+		logf("%s %s (%s): %s", doing, id, name, reason)
+	}
+
+	instances, err := o.describeInstances(ctx, filter("instance-state-name", "pending", "running", "stopping", "stopped"))
+	if err != nil {
+		return err
+	}
+	var terminate []string
+	for _, inst := range instances {
+		var reason string
+		// LaunchTime is the latest start, so a stopped orb has not run since.
+		launched := aws.ToTime(inst.LaunchTime)
+		switch tagValue(inst.Tags, tagKind) {
+		case "orb":
+			if inst.State.Name == types.InstanceStateNameStopped && launched.Before(cutoff) {
+				reason = "stopped and unused since " + launched.Format(time.RFC3339)
+			}
+		case "builder":
+			if launched.Before(time.Now().Add(-builderMaxAge)) {
+				reason = "builder left over from a bake at " + launched.Format(time.RFC3339)
+			}
+		}
+		if reason != "" {
+			report("terminating", aws.ToString(inst.InstanceId), tagValue(inst.Tags, "Name"), reason)
+			terminate = append(terminate, aws.ToString(inst.InstanceId))
+		}
+	}
+	if len(terminate) > 0 && !dryRun {
+		if _, err := o.ec2.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: terminate}); err != nil {
+			return fmt.Errorf("terminate %s: %w", strings.Join(terminate, ", "), err)
+		}
+	}
+
 	images, err := o.describeImages(ctx, []string{"self"}, filter("tag:"+tagProvider, o.cfg.Provider), filter("state", "available", "failed"))
 	if err != nil {
 		return err
 	}
-	cutoff := time.Now().Add(-olderThan)
 	newestBase := map[string]bool{}
-	pruned := 0
 	for _, image := range images { // newest first
 		var reason string
+		used, _ := time.Parse(time.RFC3339, tagValue(image.Tags, tagLastUsed))
+		if created, _ := time.Parse(time.RFC3339, aws.ToString(image.CreationDate)); created.After(used) {
+			used = created
+		}
 		switch tagValue(image.Tags, tagKind) {
 		case imageKindSnapshot:
-			used, _ := time.Parse(time.RFC3339, tagValue(image.Tags, tagLastUsed))
-			if created, _ := time.Parse(time.RFC3339, aws.ToString(image.CreationDate)); created.After(used) {
-				used = created
-			}
 			if used.Before(cutoff) {
 				reason = "unused since " + used.Format(time.RFC3339)
 			}
@@ -167,32 +209,60 @@ func (o *Orbs) Prune(ctx context.Context, olderThan time.Duration, dryRun bool) 
 			key := tagValue(image.Tags, tagImage) + "|" + tagValue(image.Tags, tagArch)
 			if newestBase[key] {
 				reason = "superseded base AMI"
+			} else if used.Before(cutoff) {
+				reason = "unused since " + used.Format(time.RFC3339)
 			}
 			newestBase[key] = true
 		}
 		if reason == "" {
 			continue
 		}
-		pruned++
 		id := aws.ToString(image.ImageId)
-		logf("%s %s (%s): %s", map[bool]string{true: "would delete", false: "deleting"}[dryRun], id, aws.ToString(image.Name), reason)
+		report("deleting", id, aws.ToString(image.Name), reason)
 		if dryRun {
 			continue
 		}
-		if _, err := o.ec2.DeregisterImage(ctx, &ec2.DeregisterImageInput{ImageId: image.ImageId}); err != nil {
-			return fmt.Errorf("deregister %s: %w", id, err)
-		}
-		for _, bd := range image.BlockDeviceMappings {
-			if bd.Ebs == nil || bd.Ebs.SnapshotId == nil {
-				continue
-			}
-			if _, err := o.ec2.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: bd.Ebs.SnapshotId}); err != nil {
-				return fmt.Errorf("delete snapshot %s of %s: %w", aws.ToString(bd.Ebs.SnapshotId), id, err)
-			}
+		if err := o.deleteImage(ctx, image); err != nil {
+			return err
 		}
 	}
 	if pruned == 0 {
 		logf("nothing to prune")
+	}
+	return nil
+}
+
+// builderMaxAge is how long a bake can run before prune deletes its builder.
+const builderMaxAge = 3 * time.Hour
+
+// deleteImage deregisters the AMI and deletes those of its EBS snapshots that
+// carry this provider's tag.
+func (o *Orbs) deleteImage(ctx context.Context, image types.Image) error {
+	id := aws.ToString(image.ImageId)
+	var snapshots []string
+	for _, bd := range image.BlockDeviceMappings {
+		if bd.Ebs != nil && bd.Ebs.SnapshotId != nil {
+			snapshots = append(snapshots, aws.ToString(bd.Ebs.SnapshotId))
+		}
+	}
+	var owned []types.Snapshot
+	if len(snapshots) > 0 {
+		out, err := o.ec2.DescribeSnapshots(ctx, &ec2.DescribeSnapshotsInput{
+			OwnerIds: []string{"self"},
+			Filters:  []types.Filter{filter("snapshot-id", snapshots...), filter("tag:"+tagProvider, o.cfg.Provider)},
+		})
+		if err != nil {
+			return fmt.Errorf("describe snapshots of %s: %w", id, err)
+		}
+		owned = out.Snapshots
+	}
+	if _, err := o.ec2.DeregisterImage(ctx, &ec2.DeregisterImageInput{ImageId: image.ImageId}); err != nil {
+		return fmt.Errorf("deregister %s: %w", id, err)
+	}
+	for _, snapshot := range owned {
+		if _, err := o.ec2.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: snapshot.SnapshotId}); err != nil {
+			return fmt.Errorf("delete snapshot %s of %s: %w", aws.ToString(snapshot.SnapshotId), id, err)
+		}
 	}
 	return nil
 }

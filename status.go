@@ -67,7 +67,8 @@ code { font-size: 13px; }
 </body></html>
 `))
 
-// Serve runs a web server that shows this provider's instances and AMIs.
+// Serve runs a web server that shows this provider's instances and AMIs,
+// and prunes them every hour unless ORB_EC2_PRUNE_AFTER is off.
 func (o *Orbs) Serve(addr string) error {
 	http.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
@@ -95,8 +96,24 @@ func (o *Orbs) Serve(addr string) error {
 			logf("status page: %v", err)
 		}
 	})
+	if o.cfg.PruneAfter > 0 {
+		go o.pruneEvery(time.Hour)
+	}
 	logf("serving status for provider %s on %s", o.cfg.Provider, addr)
 	return http.ListenAndServe(addr, nil)
+}
+
+// pruneEvery runs Prune with ORB_EC2_PRUNE_AFTER now and then at each interval.
+func (o *Orbs) pruneEvery(interval time.Duration) {
+	logf("pruning orbs and AMIs unused for %s every %s", o.cfg.PruneAfter, interval)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), interval)
+		if err := o.Prune(ctx, o.cfg.PruneAfter, false); err != nil {
+			logf("prune: %v", err)
+		}
+		cancel()
+		time.Sleep(interval)
+	}
 }
 
 // orbState is the instance's state, or "hibernated" for a hibernated stop.

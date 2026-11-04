@@ -194,9 +194,7 @@ func (o *Orbs) launch(ctx context.Context, job Job) (*types.Instance, error) {
 			logf("snapshot %s is %s, but orb type %s is %s; not using it", job.SnapshotID, tagValue(image.Tags, tagArch), orbType.Name, info.arch)
 			image = nil
 		}
-		if image != nil {
-			_ = o.tag(ctx, aws.ToString(image.ImageId), map[string]string{tagLastUsed: time.Now().UTC().Format(time.RFC3339)})
-		} else {
+		if image == nil {
 			logf("no saved snapshot %s; booting from %s", job.SnapshotID, job.Image)
 		}
 	}
@@ -206,7 +204,10 @@ func (o *Orbs) launch(ctx context.Context, job Job) (*types.Instance, error) {
 			return nil, err
 		}
 	}
-	if image == nil {
+	if image != nil {
+		// Prune keeps snapshot and base AMIs while spawns use them.
+		_ = o.tag(ctx, aws.ToString(image.ImageId), map[string]string{tagLastUsed: time.Now().UTC().Format(time.RFC3339)})
+	} else {
 		logf("no base AMI for %s; installing Docker and pulling the image on first boot takes a few minutes (run `orb-ec2 bake` to skip this)", job.Image)
 		if image, err = o.hostImage(ctx, info.arch); err != nil {
 			return nil, err

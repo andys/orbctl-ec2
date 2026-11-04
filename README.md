@@ -50,6 +50,7 @@ Without a base AMI, an orb's first boot installs Docker and pulls the 4 GB orb i
 | `ORB_EC2_SECURITY_GROUPS` | `amp-orbs-<provider>`, created egress-only in the subnet's VPC |
 | `ORB_EC2_VOLUME_GB` | `64`, raised to RAM + 32 GiB |
 | `ORB_IMAGE` | Amp's x64 orb image. The provider passes it to spawn jobs, and `bake` uses it |
+| `ORB_EC2_PRUNE_AFTER` | `336h` (14 days). How long `serve` keeps stopped orbs and unused AMIs, and the default for `prune -older-than`. `off` stops `serve` from pruning |
 
 ### Admin commands
 
@@ -57,28 +58,108 @@ Without a base AMI, an orb's first boot installs Docker and pulls the 4 GB orb i
 orb-ec2 list                     # orbs (with hibernated state) and AMIs
 orb-ec2 logs amp-T-…             # console output, including the agent's log
 orb-ec2 bake [-image IMG] [-type small]
-orb-ec2 prune [-older-than 336h] [-dry-run]   # unused snapshot AMIs, superseded base AMIs
-orb-ec2 serve [-addr :8080]      # HTML status page of instances and AMIs; defaults to :$PORT when set
+orb-ec2 prune [-older-than 336h] [-dry-run]   # see Cleanup
+orb-ec2 serve [-addr :8080]      # HTML status page, and pruning every hour; listens on :$PORT when set
 ```
 
 The Docker image runs `orb-ec2 serve` next to the provider. The page has no authentication and shows orb IDs, instance IDs, and private IPs, so keep it off the public internet or put it behind an authenticating proxy.
 
+## Cleanup
+
+Amp sends `delete` only when a thread is deleted. Archived and idle threads keep their paused orbs, so `orb-ec2 serve` prunes every hour, and `orb-ec2 prune` does the same once. A prune:
+
+- terminates orbs that have been stopped or hibernated, without a start, for `ORB_EC2_PRUNE_AFTER`. Their root volumes go with them. A later message in the thread boots a fresh orb, from the project snapshot when there is one
+- terminates builder instances that a failed `bake` left behind, after 3 hours
+- deletes snapshot and base AMIs, with their EBS snapshots, that no spawn has used for `ORB_EC2_PRUNE_AFTER`, and base AMIs that a newer bake replaced
+
+It never stops or terminates a running orb: Amp pauses those when their threads go idle. So with the provider and `serve` running, every orb and AMI is gone `ORB_EC2_PRUNE_AFTER` after its last use. The `amp-orbs-<provider>` security group stays; it costs nothing.
+
+Every instance, volume, AMI, EBS snapshot, and security group that orb-ec2 creates gets an `amp-orb-provider` tag at creation, and orb-ec2 only finds, changes, and deletes resources with this provider's tag. The IAM policy below enforces that.
+
 ## IAM permissions
+
+The dispatcher can create instances, AMIs, and security groups only with an `amp-orb-provider` tag, and can start, stop, terminate, tag, or delete only resources that already have one. Untagged resources in the account are out of its reach. To keep several providers in one account apart, replace each `"Null": {"aws:...Tag/amp-orb-provider": "false"}` condition with `"StringEquals": {"aws:...Tag/amp-orb-provider": "<ORB_EC2_PROVIDER>"}`.
 
 ```json
 {
   "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": [
-      "ec2:RunInstances", "ec2:StartInstances", "ec2:StopInstances", "ec2:TerminateInstances",
-      "ec2:CreateTags", "ec2:DescribeInstances", "ec2:DescribeInstanceTypes", "ec2:GetConsoleOutput",
-      "ec2:CreateImage", "ec2:DescribeImages", "ec2:DeregisterImage", "ec2:DeleteSnapshot",
-      "ec2:DescribeSubnets", "ec2:DescribeNetworkInterfaces",
-      "ec2:DescribeSecurityGroups", "ec2:CreateSecurityGroup"
-    ],
-    "Resource": "*"
-  }]
+  "Statement": [
+    {
+      "Sid": "Read",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstances", "ec2:DescribeInstanceTypes", "ec2:DescribeImages", "ec2:DescribeSnapshots",
+        "ec2:DescribeSubnets", "ec2:DescribeNetworkInterfaces", "ec2:DescribeSecurityGroups"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "LaunchTaggedInstances",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": ["arn:aws:ec2:*:*:instance/*", "arn:aws:ec2:*:*:volume/*"],
+      "Condition": {"Null": {"aws:RequestTag/amp-orb-provider": "false"}}
+    },
+    {
+      "Sid": "LaunchFromImagesIntoSubnets",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": [
+        "arn:aws:ec2:*::image/*", "arn:aws:ec2:*::snapshot/*", "arn:aws:ec2:*:*:subnet/*",
+        "arn:aws:ec2:*:*:network-interface/*", "arn:aws:ec2:*:*:security-group/*"
+      ]
+    },
+    {
+      "Sid": "ManageTaggedInstances",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:StartInstances", "ec2:StopInstances", "ec2:TerminateInstances", "ec2:GetConsoleOutput", "ec2:CreateImage"
+      ],
+      "Resource": "arn:aws:ec2:*:*:instance/*",
+      "Condition": {"Null": {"aws:ResourceTag/amp-orb-provider": "false"}}
+    },
+    {
+      "Sid": "CreateTaggedImages",
+      "Effect": "Allow",
+      "Action": "ec2:CreateImage",
+      "Resource": ["arn:aws:ec2:*::image/*", "arn:aws:ec2:*::snapshot/*"],
+      "Condition": {"Null": {"aws:RequestTag/amp-orb-provider": "false"}}
+    },
+    {
+      "Sid": "DeleteTaggedImages",
+      "Effect": "Allow",
+      "Action": ["ec2:DeregisterImage", "ec2:DeleteSnapshot"],
+      "Resource": ["arn:aws:ec2:*::image/*", "arn:aws:ec2:*::snapshot/*"],
+      "Condition": {"Null": {"aws:ResourceTag/amp-orb-provider": "false"}}
+    },
+    {
+      "Sid": "CreateTaggedSecurityGroup",
+      "Effect": "Allow",
+      "Action": "ec2:CreateSecurityGroup",
+      "Resource": "arn:aws:ec2:*:*:security-group/*",
+      "Condition": {"Null": {"aws:RequestTag/amp-orb-provider": "false"}}
+    },
+    {
+      "Sid": "CreateSecurityGroupInVpc",
+      "Effect": "Allow",
+      "Action": "ec2:CreateSecurityGroup",
+      "Resource": "arn:aws:ec2:*:*:vpc/*"
+    },
+    {
+      "Sid": "TagWhileCreating",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": "*",
+      "Condition": {"StringEquals": {"ec2:CreateAction": ["RunInstances", "CreateImage", "CreateSecurityGroup"]}}
+    },
+    {
+      "Sid": "RetagTaggedResources",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": ["arn:aws:ec2:*:*:instance/*", "arn:aws:ec2:*::image/*"],
+      "Condition": {"Null": {"aws:ResourceTag/amp-orb-provider": "false"}}
+    }
+  ]
 }
 ```
 

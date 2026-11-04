@@ -11,6 +11,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -33,6 +34,7 @@ const (
 	defaultRegion = "us-west-2"
 	jobTimeout    = 4*time.Minute + 45*time.Second // the contract allows five minutes
 	defaultVolume = 64
+	defaultPrune  = 14 * 24 * time.Hour
 	x86OrbTypes   = "medium=m6i.xlarge,small=t3.large,large=m6i.2xlarge"
 	gravitonTypes = "medium=m7g.xlarge,small=t4g.large,large=m7g.2xlarge"
 	usage         = `usage:
@@ -42,10 +44,12 @@ const (
   orb-ec2 list               list orbs and AMIs
   orb-ec2 logs ORB_ID        print the orb instance's console output
   orb-ec2 prune [-older-than 336h] [-dry-run]
-                             delete unused snapshot AMIs and superseded base AMIs
+                             terminate orbs stopped that long, delete AMIs unused
+                             that long and superseded base AMIs
   orb-ec2 serve [-addr :8080]
-                             serve an HTML page of orb instances and AMIs
-                             (the address defaults to :$PORT when PORT is set)
+                             serve an HTML page of orb instances and AMIs, and
+                             prune every hour (the address defaults to :$PORT
+                             when PORT is set)
 
 Configuration (environment):
   AWS_REGION                 region (default us-west-2)
@@ -55,6 +59,7 @@ Configuration (environment):
   ORB_EC2_SUBNETS            subnet IDs for orbs (default: the subnet of this ECS task)
   ORB_EC2_SECURITY_GROUPS    security group IDs (default: an egress-only group it creates)
   ORB_EC2_VOLUME_GB          root volume size (default 64, raised to fit RAM for hibernation)
+  ORB_EC2_PRUNE_AFTER        how long serve keeps unused orbs and AMIs (default 336h; "off" stops pruning)
   ORB_IMAGE                  orb image for bake and spawn (default Amp's x64 image)
 `
 )
@@ -67,6 +72,7 @@ type Config struct {
 	SecurityGroups []string
 	Types          string // ORB_EC2_TYPES; empty picks defaults from the image architecture
 	VolumeGB       int32
+	PruneAfter     time.Duration // 0 when serve does not prune
 }
 
 // orbTypes returns the configured orb types; the first one is the default.
@@ -125,6 +131,7 @@ func loadConfig() (Config, error) {
 		SecurityGroups: splitList(os.Getenv("ORB_EC2_SECURITY_GROUPS")),
 		Types:          os.Getenv("ORB_EC2_TYPES"),
 		VolumeGB:       defaultVolume,
+		PruneAfter:     defaultPrune,
 	}
 	if c.Provider == "" {
 		c.Provider = "default"
@@ -135,6 +142,15 @@ func loadConfig() (Config, error) {
 			return c, fmt.Errorf("ORB_EC2_VOLUME_GB: %q is not a size in GiB", v)
 		}
 		c.VolumeGB = int32(n)
+	}
+	if v := os.Getenv("ORB_EC2_PRUNE_AFTER"); v == "off" {
+		c.PruneAfter = 0
+	} else if v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return c, fmt.Errorf("ORB_EC2_PRUNE_AFTER: %q is not a duration such as 336h, or off", v)
+		}
+		c.PruneAfter = d
 	}
 	return c, nil
 }
@@ -220,7 +236,7 @@ func run(args []string) error {
 		}
 		return orbs.Logs(ctx, args[1])
 	case "prune":
-		olderThan := flags.Duration("older-than", 14*24*time.Hour, "delete snapshot AMIs not used for this long")
+		olderThan := flags.Duration("older-than", cmp.Or(orbs.cfg.PruneAfter, defaultPrune), "delete orbs and AMIs not used for this long")
 		dryRun := flags.Bool("dry-run", false, "only print what would be deleted")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err

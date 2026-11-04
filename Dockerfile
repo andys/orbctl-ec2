@@ -21,7 +21,8 @@ RUN curl -fsSL https://ampcode.com/install.sh | bash
 ENV PATH=/home/orb/.local/bin:$PATH
 
 # tini reaps the dispatch processes the provider starts for each job, and -g
-# passes stop signals to the status server too. The server listens on $PORT,
+# passes stop signals to the status server too. The server also prunes unused
+# orbs and AMIs every hour (see ORB_EC2_PRUNE_AFTER), and listens on $PORT,
 # or 8080.
 EXPOSE 8080
 ENTRYPOINT ["tini", "-g", "--", "sh", "-c", "orb-ec2 serve & exec amp orb provider /usr/local/bin/orb-ec2"]
