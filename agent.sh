@@ -82,7 +82,9 @@ run_job() {
 	[ "${lines[0]:-}" = "$nonce" ] || return 1
 	if ! docker container inspect orb >/dev/null 2>&1; then
 		say "LOG creating orb container"
-		docker run -d --name orb --init --privileged --network host --shm-size=1g \
+		# --uts host keeps the hostname current when a snapshot AMI brings this
+		# container to a new instance; Docker otherwise fixes it at creation.
+		docker run -d --name orb --init --privileged --network host --uts host --shm-size=1g \
 			--restart unless-stopped "$ORB_IMAGE" sleep infinity >/dev/null || return 1
 	fi
 	docker start orb >/dev/null || return 1
