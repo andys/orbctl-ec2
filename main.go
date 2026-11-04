@@ -43,6 +43,9 @@ const (
   orb-ec2 logs ORB_ID        print the orb instance's console output
   orb-ec2 prune [-older-than 336h] [-dry-run]
                              delete unused snapshot AMIs and superseded base AMIs
+  orb-ec2 serve [-addr :8080]
+                             serve an HTML page of orb instances and AMIs
+                             (the address defaults to :$PORT when PORT is set)
 
 Configuration (environment):
   AWS_REGION                 region (default us-west-2)
@@ -223,6 +226,16 @@ func run(args []string) error {
 			return err
 		}
 		return orbs.Prune(ctx, *olderThan, *dryRun)
+	case "serve":
+		addr := ":8080"
+		if port := os.Getenv("PORT"); port != "" {
+			addr = ":" + port
+		}
+		flagAddr := flags.String("addr", addr, "address to listen on")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		return orbs.Serve(*flagAddr)
 	}
 	return fmt.Errorf("unknown command %q\n%s", args[0], usage)
 }

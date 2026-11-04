@@ -97,10 +97,7 @@ func (o *Orbs) List(ctx context.Context) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ORB\tINSTANCE\tSTATE\tTYPE\tZONE\tLAUNCHED")
 	for _, inst := range instances {
-		state := string(inst.State.Name)
-		if hibernated(&inst) {
-			state = "hibernated"
-		}
+		state := orbState(inst)
 		orb := tagValue(inst.Tags, tagOrbID)
 		if orb == "" {
 			orb = tagValue(inst.Tags, "Name")

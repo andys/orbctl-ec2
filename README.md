@@ -58,7 +58,10 @@ orb-ec2 list                     # orbs (with hibernated state) and AMIs
 orb-ec2 logs amp-T-…             # console output, including the agent's log
 orb-ec2 bake [-image IMG] [-type small]
 orb-ec2 prune [-older-than 336h] [-dry-run]   # unused snapshot AMIs, superseded base AMIs
+orb-ec2 serve [-addr :8080]      # HTML status page of instances and AMIs; defaults to :$PORT when set
 ```
+
+The Docker image runs `orb-ec2 serve` next to the provider. The page has no authentication and shows orb IDs, instance IDs, and private IPs, so keep it off the public internet or put it behind an authenticating proxy.
 
 ## IAM permissions
 
