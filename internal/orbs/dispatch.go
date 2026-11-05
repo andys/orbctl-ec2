@@ -1,4 +1,4 @@
-package main
+package orbs
 
 import (
 	"context"
@@ -290,7 +290,7 @@ func hibernated(inst *types.Instance) bool {
 func deadline(ctx context.Context) time.Time {
 	d, ok := ctx.Deadline()
 	if !ok {
-		return time.Now().Add(jobTimeout)
+		return time.Now().Add(JobTimeout)
 	}
 	return d
 }

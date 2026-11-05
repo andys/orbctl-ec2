@@ -18,7 +18,7 @@ Each instance runs the orb image (`ORB_IMAGE`) in a Docker container named `orb`
 
 The dispatcher needs only EC2 API access. It needs no SSH, SSM, instance profile, or inbound network path. Instances get an egress-only security group.
 
-1. User data installs `amp-orb-agent` (see `agent.sh`), a systemd service. At boot it creates a P-256 key and prints the public key on the serial console. Then it installs Docker and pulls the image.
+1. User data installs `amp-orb-agent` (see `internal/orbs/agent.sh`), a systemd service. At boot it creates a P-256 key and prints the public key on the serial console. Then it installs Docker and pulls the image.
 2. On the first spawn, the dispatcher reads the key with `GetConsoleOutput` and saves it as the `amp-orb-pubkey` tag.
 3. For each spawn, the dispatcher seals `ORB_TOKEN` and `AMP_URL` to that key using ECDH, SHA-256, and AES-256-CBC. It writes the sealed payload to `amp-orb-payload-N` tags and a new nonce to `amp-orb-job`.
 4. The agent polls its tags through IMDS, which picks up changes in about 3 seconds. It opens the payload, runs `docker exec -d orb amp orb bootstrap`, and prints `STARTED <nonce>` on the console.
@@ -28,7 +28,7 @@ Principals that can read EC2 tags see only the sealed token. Hibernation keeps t
 ## Run it
 
 ```sh
-go build -o /usr/local/bin/orb-ec2 .
+go build -o /usr/local/bin/orb-ec2 ./cmd/orb-ec2
 orb-ec2 bake                                  # optional but recommended; see below
 export AMP_ORB_PROVIDER_TOKEN=aop_live_...    # from Settings → Orbs → Add Orb Provider
 amp orb provider /usr/local/bin/orb-ec2
