@@ -21,7 +21,8 @@ RUN setcap cap_net_bind_service=+ep /usr/local/bin/orb-ec2
 USER orb
 WORKDIR /home/orb
 RUN curl -fsSL https://ampcode.com/install.sh | bash
-ENV PATH=/home/orb/.local/bin:$PATH
+ENV PATH=/home/orb/.amp/bin:/home/orb/.local/bin:$PATH
+RUN amp --version
 
 # tini reaps the dispatch processes the provider starts for each job
 # orb-ec2 serve answers health checks on $PORT (default 80) and runs the provider

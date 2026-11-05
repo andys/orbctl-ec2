@@ -17,6 +17,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/andys/orbctl-ec2/internal/orbs"
@@ -123,7 +124,42 @@ func run(args []string) error {
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		return o.Serve(*flagAddr)
+		ampPath, err := exec.LookPath("amp")
+		if err != nil {
+			home, _ := os.UserHomeDir()
+			for _, p := range []string{home + "/.amp/bin/amp", home + "/.local/bin/amp"} {
+				if _, statErr := os.Stat(p); statErr == nil {
+					ampPath, err = p, nil
+					break
+				}
+			}
+			if err != nil {
+				return fmt.Errorf("start amp: %w", err)
+			}
+		}
+		runnerID := os.Getenv("AMP_RUNNER_ID")
+		if runnerID == "" {
+			return errors.New("start amp: AMP_RUNNER_ID is not set")
+		}
+		self, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("start amp: %w", err)
+		}
+		amp := exec.Command(ampPath, "orb", "provider", "--runner-id", runnerID, self)
+		amp.Env = os.Environ()
+		amp.Stdin, amp.Stdout, amp.Stderr = os.Stdin, os.Stdout, os.Stderr
+		if err := amp.Start(); err != nil {
+			return fmt.Errorf("start amp: %w", err)
+		}
+		done := make(chan error, 2)
+		go func() {
+			err := amp.Wait()
+			done <- fmt.Errorf("amp exited: %v", err)
+		}()
+		go func() { done <- o.Serve(*flagAddr) }()
+		err = <-done
+		_ = amp.Process.Kill() // no-op if amp already exited
+		return err
 	}
 	return fmt.Errorf("unknown command %q\n%s", args[0], usage)
 }

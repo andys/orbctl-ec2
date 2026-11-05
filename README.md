@@ -31,8 +31,10 @@ Principals that can read EC2 tags see only the sealed token. Hibernation keeps t
 go build -o /usr/local/bin/orb-ec2 ./cmd/orb-ec2
 orb-ec2 bake                                  # optional but recommended; see below
 export AMP_ORB_PROVIDER_TOKEN=aop_live_...    # from Settings → Orbs → Add Orb Provider
-amp orb provider /usr/local/bin/orb-ec2
+amp orb provider --runner-id "$AMP_RUNNER_ID" /usr/local/bin/orb-ec2
 ```
+
+`amp` must be run with `--runner-id "$AMP_RUNNER_ID"`.
 
 Credentials come from the AWS default chain. On ECS, that is the task role. Set `ORB_EC2_ROLE_ARN` to assume another role on top of it.
 
