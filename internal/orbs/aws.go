@@ -174,7 +174,7 @@ func (o *Orbs) watchConsole(ctx context.Context, id string, check func([][]strin
 }
 
 // launch creates the orb's instance from its snapshot AMI, the newest base
-// AMI for its image, or stock Amazon Linux 2023, in that order.
+// AMI for its image, or stock Ubuntu Server 24.04 LTS, in that order.
 func (o *Orbs) launch(ctx context.Context, job Job) (*types.Instance, error) {
 	orbType, err := o.cfg.instanceType(job.Image, job.Type)
 	if err != nil {
@@ -515,13 +515,21 @@ func (o *Orbs) newestImage(ctx context.Context, owners []string, filters ...type
 	return &images[0], nil
 }
 
-// hostImage returns the newest stock Amazon Linux 2023 AMI, which has the
-// hibernation agent preinstalled.
+// canonicalOwner is Canonical's AWS account, which publishes Ubuntu AMIs.
+const canonicalOwner = "099720109477"
+
+// hostImage returns the newest stock Ubuntu Server 24.04 LTS AMI, which has
+// the hibernation agent preinstalled.
 func (o *Orbs) hostImage(ctx context.Context, arch string) (*types.Image, error) {
-	image, err := o.newestImage(ctx, []string{"amazon"}, filter("name", "al2023-ami-2023.*-kernel-*-"+arch),
+	ubuntuArch := arch
+	if arch == "x86_64" {
+		ubuntuArch = "amd64"
+	}
+	image, err := o.newestImage(ctx, []string{canonicalOwner},
+		filter("name", "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-"+ubuntuArch+"-server-*"),
 		filter("architecture", arch))
 	if err == nil && image == nil {
-		err = fmt.Errorf("no Amazon Linux 2023 AMI for %s", arch)
+		err = fmt.Errorf("no Ubuntu Server 24.04 LTS AMI for %s", arch)
 	}
 	return image, err
 }

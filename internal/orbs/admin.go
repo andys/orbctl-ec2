@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-// Bake builds a base AMI: Amazon Linux 2023 with Docker, the agent, and the
+// Bake builds a base AMI: Ubuntu Server 24.04 LTS with Docker, the agent, and the
 // orb image pulled, so new orbs skip that work on first boot. Spawn picks the
 // newest base AMI whose image and architecture match.
 func (o *Orbs) Bake(ctx context.Context, image, typeName string) error {

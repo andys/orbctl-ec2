@@ -4,7 +4,7 @@ An [Amp self-hosted orb](https://ampcode.com/docs/orbs/self-hosted) dispatch pro
 
 | Amp job | What orb-ec2 does |
 | --- | --- |
-| `spawn` | Launches an instance from the project snapshot AMI, the newest base AMI, or stock Amazon Linux 2023, or starts the existing instance, then has it start `amp orb bootstrap` |
+| `spawn` | Launches an instance from the project snapshot AMI, the newest base AMI, or stock Ubuntu Server 24.04 LTS, or starts the existing instance, then has it start `amp orb bootstrap` |
 | `pause` | Hibernates the instance, so memory and disk survive. With `ORB_SNAPSHOT_ID` set, it stops the instance and saves its disk as an AMI instead |
 | `delete` | Terminates the instance, which deletes its disk |
 

@@ -56,10 +56,15 @@ ensure_key() {
 	say "PUBKEY $iid $(openssl pkey -in "$STATE/key.pem" -pubout -outform DER | base64 -w0)"
 }
 
+apt_install() {
+	DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null &&
+		DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" >/dev/null
+}
+
 provision() {
 	if ! command -v docker >/dev/null; then
 		say "LOG installing docker"
-		dnf install -y -q docker >/dev/null || return 1
+		apt_install docker.io || return 1
 	fi
 	systemctl enable --now docker >/dev/null 2>&1 || return 1
 	if ! docker container inspect orb >/dev/null 2>&1 && ! docker image inspect "$ORB_IMAGE" >/dev/null 2>&1; then
@@ -104,7 +109,7 @@ main() {
 
 	local iid last job
 	until iid=$(imds instance-id); do sleep 1; done
-	command -v openssl >/dev/null || dnf install -y -q openssl >/dev/null
+	command -v openssl >/dev/null || apt_install openssl
 	until ensure_key "$iid"; do sleep 2; done
 	until provision; do
 		say "LOG provisioning failed, retrying"
