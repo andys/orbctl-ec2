@@ -6,14 +6,14 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/orb-ec2 ./cmd/orb-ec2
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/ ./cmd/...
 
 FROM debian:bookworm-slim
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends ca-certificates curl tini libcap2-bin \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& useradd --create-home --uid 1000 orb
-COPY --from=build /out/orb-ec2 /usr/local/bin/orb-ec2
+COPY --from=build /out/orb-ec2 /out/orb-ec2-expunge /usr/local/bin/
 # Let the non-root user bind ports below 1024, such as the default PORT 80
 RUN setcap cap_net_bind_service=+ep /usr/local/bin/orb-ec2
 

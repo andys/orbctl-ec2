@@ -34,7 +34,7 @@ code { font-size: 13px; }
 .pending, .stopping, .shutting-down { color: #c2410c; } .terminated { color: #999; }
 .error { color: #b91c1c; }
 </style></head><body>
-<h1>orb-ec2 provider <code>{{.Provider}}</code></h1>
+<h1>orb-ec2 provider <code>{{.Provider}}</code> in <code>{{.Region}}</code></h1>
 <p>{{.Now.Format "2006-01-02 15:04:05 MST"}} · refreshes every 10 seconds</p>
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 <h2>Instances</h2>
@@ -63,7 +63,11 @@ code { font-size: 13px; }
 <td>{{.CreationDate}}</td>
 <td>{{with tag .Tags "amp-orb-snapshot-id"}}{{.}}{{else}}{{tag .Tags "amp-orb-image"}}{{end}}</td>
 </tr>{{end}}
-</table>{{else}}<p>No AMIs.</p>{{end}}
+</table>{{else}}<p>No AMIs tagged <code>amp-orb-provider={{.Provider}}</code> in {{.Region}}.</p>
+{{if .Others}}<p class="error">These AMIs look like ours but belong to another provider name (set ORB_EC2_PROVIDER to match):</p>
+<table><tr><th>AMI</th><th>Name</th><th>Provider tag</th><th>State</th><th>Created</th></tr>
+{{range .Others}}<tr><td><code>{{.ImageId}}</code></td><td>{{.Name}}</td><td>{{tag .Tags "amp-orb-provider"}}</td><td>{{.State}}</td><td>{{.CreationDate}}</td></tr>{{end}}
+</table>{{end}}{{end}}
 </body></html>
 `))
 
@@ -78,8 +82,10 @@ func (o *Orbs) Serve(addr string) error {
 			Now       time.Time
 			Instances []types.Instance
 			Images    []types.Image
+			Others    []types.Image // our AMIs under other provider names
+			Region    string
 			Error     error
-		}{Provider: o.cfg.Provider, Now: time.Now()}
+		}{Provider: o.cfg.Provider, Region: o.region, Now: time.Now()}
 		// Terminated instances stay visible in EC2 for about an hour.
 		data.Instances, data.Error = o.describeInstances(ctx)
 		sort.Slice(data.Instances, func(i, j int) bool {
@@ -87,6 +93,17 @@ func (o *Orbs) Serve(addr string) error {
 		})
 		if data.Error == nil {
 			data.Images, data.Error = o.describeImages(ctx, []string{"self"}, filter("tag:"+tagProvider, o.cfg.Provider))
+		}
+		if data.Error == nil && len(data.Images) == 0 {
+			others, err := o.ownImages(ctx, "")
+			if err != nil {
+				logf("status page: %v", err)
+			}
+			data.Others = others
+			logf("status page: no AMIs for provider %s in %s (%d other amp-orb AMIs)", o.cfg.Provider, o.region, len(others))
+		}
+		if data.Error != nil {
+			logf("status page: %v", data.Error)
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if data.Error != nil {

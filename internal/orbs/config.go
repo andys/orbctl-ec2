@@ -118,7 +118,10 @@ func loadConfig() (Config, error) {
 }
 
 // New loads configuration from the environment and connects to EC2.
-func New(ctx context.Context) (*Orbs, error) {
+func New(ctx context.Context) (*Orbs, error) { return NewInRegion(ctx, "") }
+
+// NewInRegion is New with the region overridden unless region is empty.
+func NewInRegion(ctx context.Context, region string) (*Orbs, error) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err
@@ -127,7 +130,9 @@ func New(ctx context.Context) (*Orbs, error) {
 	if err != nil {
 		return nil, err
 	}
-	if awsCfg.Region == "" {
+	if region != "" {
+		awsCfg.Region = region
+	} else if awsCfg.Region == "" {
 		awsCfg.Region = defaultRegion
 	}
 	if arn := os.Getenv("ORB_EC2_ROLE_ARN"); arn != "" {
@@ -136,8 +141,11 @@ func New(ctx context.Context) (*Orbs, error) {
 		})
 		awsCfg.Credentials = aws.NewCredentialsCache(provider)
 	}
-	return &Orbs{ec2: ec2.NewFromConfig(awsCfg), cfg: cfg}, nil
+	return &Orbs{ec2: ec2.NewFromConfig(awsCfg), cfg: cfg, region: awsCfg.Region}, nil
 }
 
 // Config returns the configuration the orbs were created with.
 func (o *Orbs) Config() Config { return o.cfg }
+
+// Region returns the AWS region the orbs live in.
+func (o *Orbs) Region() string { return o.region }

@@ -26,8 +26,9 @@ type Job struct {
 }
 
 type Orbs struct {
-	ec2 *ec2.Client
-	cfg Config
+	ec2    *ec2.Client
+	cfg    Config
+	region string
 
 	subnets, securityGroups []string        // resolved lazily by network()
 	printed                 map[string]bool // console lines already logged
