@@ -20,9 +20,10 @@ RUN setcap cap_net_bind_service=+ep /usr/local/bin/orb-ec2
 # The Amp CLI installs into ~/.amp/bin and updates itself there
 USER orb
 WORKDIR /home/orb
-RUN curl -fsSL https://ampcode.com/install.sh | bash
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN curl -fsSL https://ampcode.com/install.sh | bash \
+	&& /home/orb/.amp/bin/amp --version
 ENV PATH=/home/orb/.amp/bin:/home/orb/.local/bin:$PATH
-RUN amp --version
 
 # tini reaps the dispatch processes the provider starts for each job
 # orb-ec2 serve answers health checks on $PORT (default 80) and runs the provider

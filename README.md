@@ -172,3 +172,10 @@ Root volumes use the account's default EBS key, `aws/ebs`, which needs no extra 
 - Hibernation needs the instance to finish preparing its swap file, which takes a few minutes after first boot. A pause before that stops the instance instead, so memory is lost that one time.
 - A snapshot pause does a normal stop, because an AMI of a hibernated disk does not boot cleanly. The orb loses memory on that pause. A new thread can use the snapshot once EC2 finishes the AMI. Until then, new threads boot from the image.
 - Snapshot AMIs include the orb's hibernation swap file, so they hold RAM-sized data.
+
+
+## EC2 Cleanup
+
+- Run `/usr/local/bin/orb-ec2-expunge -instances` to delete images
+- Run `/usr/local/bin/orb-ec2-expunge -all-providers` for EBS snapshots and AMI cleanup
+- Default is dry run; append `-yes` to action.
