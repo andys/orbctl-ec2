@@ -62,6 +62,12 @@ apt_install() {
 }
 
 provision() {
+	if ! dpkg -s ec2-hibinit-agent >/dev/null 2>&1; then
+		say "LOG installing ec2-hibinit-agent"
+		apt_install ec2-hibinit-agent || return 1
+	fi
+	# hibinit-agent sets up the swap file and resume settings that hibernation needs.
+	systemctl enable --now hibinit-agent >/dev/null 2>&1 || return 1
 	if ! command -v docker >/dev/null; then
 		say "LOG installing docker"
 		apt_install docker.io || return 1

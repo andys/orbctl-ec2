@@ -518,8 +518,8 @@ func (o *Orbs) newestImage(ctx context.Context, owners []string, filters ...type
 // canonicalOwner is Canonical's AWS account, which publishes Ubuntu AMIs.
 const canonicalOwner = "099720109477"
 
-// hostImage returns the newest stock Ubuntu Server 24.04 LTS AMI, which has
-// the hibernation agent preinstalled.
+// hostImage returns the newest stock Ubuntu Server 24.04 LTS AMI; the agent
+// installs ec2-hibinit-agent for hibernation.
 func (o *Orbs) hostImage(ctx context.Context, arch string) (*types.Image, error) {
 	ubuntuArch := arch
 	if arch == "x86_64" {
