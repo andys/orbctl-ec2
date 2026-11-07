@@ -95,10 +95,24 @@ run_job() {
 		say "LOG creating orb container"
 		# --uts host keeps the hostname current when a snapshot AMI brings this
 		# container to a new instance; Docker otherwise fixes it at creation.
-		docker run -d --name orb --init --privileged --network host --uts host --shm-size=1g \
-			--restart unless-stopped "$ORB_IMAGE" sleep infinity >/dev/null || return 1
+		# The image's systemd runs as PID 1, as in Amp's own orbs, so that orb
+		# setup scripts can use systemctl (for example to start PostgreSQL).
+		# systemd needs tmpfs /run and /run/lock, and stops on SIGRTMIN+3.
+		docker run -d --name orb --privileged --network host --uts host --shm-size=1g \
+			--cgroupns private --tmpfs /run --tmpfs /run/lock -e container=docker \
+			--stop-signal SIGRTMIN+3 --restart unless-stopped "$ORB_IMAGE" /sbin/init >/dev/null || return 1
 	fi
 	docker start orb >/dev/null || return 1
+	# Let systemd finish booting before bootstrap, so that its systemctl calls
+	# work. "degraded" means booted with a failed unit. systemctl cannot reach
+	# systemd for the first moments, so retry, and bootstrap anyway after 60s.
+	local deadline=$((SECONDS + 60))
+	while ((SECONDS < deadline)); do
+		case $(timeout $((deadline - SECONDS + 1)) docker exec orb systemctl is-system-running --wait 2>/dev/null) in
+		running | degraded) break ;;
+		esac
+		sleep 1
+	done
 	if [ -n "${lines[2]:-}" ]; then
 		ORB_TOKEN=${lines[1]} AMP_URL=${lines[2]} docker exec -d -e ORB_TOKEN -e AMP_URL orb amp orb bootstrap || return 1
 	else

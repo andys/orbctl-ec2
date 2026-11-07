@@ -8,7 +8,7 @@ An [Amp self-hosted orb](https://ampcode.com/docs/orbs/self-hosted) dispatch pro
 | `pause` | Hibernates the instance, so memory and disk survive. With `ORB_SNAPSHOT_ID` set, it stops the instance and saves its disk as an AMI instead |
 | `delete` | Terminates the instance, which deletes its disk |
 
-Each instance runs the orb image (`ORB_IMAGE`) in a Docker container named `orb` with host networking. The root volume is encrypted gp3, sized to hold RAM for hibernation. All state lives in EC2 tags, so the dispatcher is stateless.
+Each instance runs the orb image (`ORB_IMAGE`) in a Docker container named `orb` with host networking, booted with the image's systemd as PID 1. The root volume is encrypted gp3, sized to hold RAM for hibernation. All state lives in EC2 tags, so the dispatcher is stateless.
 
 | | Memory | Disk | Project snapshots |
 | --- | --- | --- | --- |
