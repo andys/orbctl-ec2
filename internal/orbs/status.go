@@ -100,7 +100,6 @@ func (o *Orbs) Serve(addr string) error {
 				logf("status page: %v", err)
 			}
 			data.Others = others
-			logf("status page: no AMIs for provider %s in %s (%d other amp-orb AMIs)", o.cfg.Provider, o.region, len(others))
 		}
 		if data.Error != nil {
 			logf("status page: %v", data.Error)
